@@ -1,0 +1,9 @@
+# SenseNova key pool for subclaw direct mode (tier <TAB> endpoint <TAB> key)
+# tier: primary = token-plan (free public beta)
+#        overflow = pay-as-you-go (only used with --overflow)
+# 4 keys, same pool, gives capacity 4 per model
+# 创建完4个key后，把sk-后面的占位符替换为真实key
+primary	https://token.sensenova.cn	sk-【KEY_3-填你新建的SenseNova密钥】
+primary	https://token.sensenova.cn	sk-【KEY_4-填你新建的SenseNova密钥】
+primary	https://token.sensenova.cn	sk-【KEY_5-填你新建的SenseNova密钥】
+primary	https://token.sensenova.cn	sk-【KEY_6-填你新建的SenseNova密钥】

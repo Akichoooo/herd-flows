@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Armor 手动测试页</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+body{max-width:880px;margin:24px auto;padding:0 20px;background:#0d1117;color:#c9d1d9}
+h1{color:#58a6ff;margin-bottom:8px;font-size:22px}
+.sub{color:#8b949e;font-size:13px;margin-bottom:20px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:14px}
+.card h2{font-size:15px;margin-bottom:10px;color:#58a6ff}
+label{display:block;font-size:12px;color:#8b949e;margin:8px 0 4px}
+input,textarea{width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:13px}
+textarea{min-height:54px;resize:vertical}
+.row{display:flex;gap:8px;align-items:center;margin-top:10px}
+button{padding:7px 14px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600}
+.primary{background:#238636;color:#fff}
+.primary:hover{background:#2ea043}
+.secondary{background:#21262d;color:#c9d1d9;border:1px solid #30363d}
+.secondary:hover{background:#30363d}
+.result{margin-top:8px;padding:10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;font-size:12px;min-height:28px;white-space:pre-wrap;word-break:break-all}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:8px;font-weight:600}
+.pass{background:#123318;color:#3fb950}
+.fail{background:#4c1e1e;color:#f85149}
+.summary{margin-top:6px;font-size:12px}
+</style>
+</head>
+<body>
+<h1>🛡 Armor 系统 · 浏览器手动测试</h1>
+<div class="sub">调本地 Armor Proxy <code>http://127.0.0.1:18791</code> · 点按钮看结果</div>
+
+<div class="card">
+  <h2>① 词表状态 /api/armor/status</h2>
+  <div class="row">
+    <button class="primary" onclick="testStatus()">查询 status</button>
+    <span id="badge-status" class="badge" style="display:none"></span>
+  </div>
+  <div id="r-status" class="result">// 点击后显示</div>
+</div>
+
+<div class="card">
+  <h2>② 穿甲 /api/armor/on</h2>
+  <label>输入明文</label>
+  <input id="on-in" value="朱镕基逝世事件，境内与境外舆论反应">
+  <div class="row"><button class="primary" onclick="testOn()">穿甲</button>
+    <span id="badge-on" class="badge" style="display:none"></span>
+  </div>
+  <div id="r-on" class="result">// 点击后显示</div>
+</div>
+
+<div class="card">
+  <h2>③ 卸甲 /api/armor/off</h2>
+  <label>输入密文</label>
+  <input id="off-in" value="[PERS_K1][EVENT_E1]，[REGION_IN]与[REGION_OUT]">
+  <div class="row"><button class="primary" onclick="testOff()">卸甲</button>
+    <span id="badge-off" class="badge" style="display:none"></span>
+  </div>
+  <div id="r-off" class="result">// 点击后显示</div>
+</div>
+
+<div class="card">
+  <h2>④ 未知 token 处理</h2>
+  <label>含未知 token</label>
+  <input id="unk-in" value="[PERS_K1]与[ORG_X99]的[EVENT_E1]">
+  <div class="row"><button class="primary" onclick="testUnk()">卸甲(含未知)</button>
+    <span id="badge-unk" class="badge" style="display:none"></span>
+  </div>
+  <div id="r-unk" class="result">// 点击后显示</div>
+</div>
+
+<div class="card">
+  <h2>⑤ 词表泄露自检 /api/armor/off 反向</h2>
+  <label>应无残留明文</label>
+  <div class="row">
+    <button class="secondary" onclick="fullRun()">▶ 一键全跑</button>
+  </div>
+  <div id="r-summary" class="summary"></div>
+</div>
+
+<script>
+const BASE = "http://127.0.0.1:18791";
+function badge(id, ok){ const el=document.getElementById(id); el.textContent=ok?"✓ PASS":"✗ FAIL"; el.className="badge "+(ok?"pass":"fail"); el.style.display="inline-block"; return ok; }
+function set(id,v){ document.getElementById(id).textContent = typeof v==="string"?v:JSON.stringify(v,null,2); }
+
+async function post(path,payload){ try{ const r=await fetch(BASE+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); return {ok:true,data:await r.json(),status:r.status}; } catch(e){ return {ok:false,error:String(e)}; } }
+
+async function testStatus(){
+  const el=document.getElementById("r-status");
+  try{ const r=await fetch(BASE+"/api/armor/status"); const d=await r.json(); set("r-status",JSON.stringify(d,null,2)); badge("badge-status",d.ok&&d.version); }
+  catch(e){ set("r-status","ERR "+e); badge("badge-status",false); }
+}
+async function testOn(){
+  const t=document.getElementById("on-in").value; const d=await post("/api/armor/on",{text:t});
+  if(!d.ok){ set("r-on","ERR "+d.error); badge("badge-on",false); return; }
+  const r=d.data; const ok=r.armored&&r.armored.includes("["); badge("badge-on",ok); set("r-on",JSON.stringify(r,null,2));
+}
+async function testOff(){
+  const t=document.getElementById("off-in").value; const d=await post("/api/armor/off",{text:t});
+  if(!d.ok){ set("r-off","ERR "+d.error); badge("badge-off",false); return; }
+  const r=d.data; const ok=r.text&&r.restored>=2; badge("badge-off",ok); set("r-off",JSON.stringify(r,null,2));
+}
+async function testUnk(){
+  const t=document.getElementById("unk-in").value; const d=await post("/api/armor/off",{text:t});
+  if(!d.ok){ set("r-unk","ERR "+d.error); badge("badge-unk",false); return; }
+  const r=d.data; const ok=r.unknown&&r.unknown.length>=1; badge("badge-unk",ok); set("r-unk",JSON.stringify(r,null,2));
+}
+async function fullRun(){
+  const s=document.getElementById("r-summary"); s.textContent="▶ 测试中...";
+  const tests=[
+    ["status",()=>testStatus()],
+    ["穿甲 on",()=>testOn()],
+    ["卸甲 off",()=>testOff()],
+    ["未知 token",()=>testUnk()],
+  ];
+  let p=0,f=0;
+  for(const [name,fn] of tests){ try{ await fn(); p++; }catch(e){ f++; } }
+  s.innerHTML=`<span class="summary" style="color:#c9d1d9">全部跑完 · <span class="badge ${p? "pass":"fail"}">PASS ${p}</span> <span class="badge ${f?"fail":"pass"}">FAIL ${f}</span></span>`;
+}
+</script>
+</body>
+</html>
