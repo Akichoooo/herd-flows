@@ -1,0 +1,13 @@
+# 真实 key 绝不入库
+gateway/.env
+*.env
+!gateway/.env.example
+!**/.env.example
+
+# 运行时生成的 worker settings（含注入的网关地址）
+runner/worker-settings/
+
+# herdr 运行时
+*.log
+*.bak
+__pycache__/

@@ -1,0 +1,50 @@
+# subclaw worker 池网关 — 一 key 一实例（cockpit-cliproxy）
+# 用法:
+#   1. cp .env.subclaw-pool.example .env   填入 4 个 SenseNova key
+#   2. docker compose -f compose.subclaw-pool.yml --env-file .env up -d
+# worker 接入（准入 key 统一 sk-subclaw-gateway，subclaw 按 429 轮换端口）:
+#   claude CLI:  ANTHROPIC_BASE_URL=http://127.0.0.1:1456..1459  ANTHROPIC_AUTH_TOKEN=sk-subclaw-gateway
+#   opencode:    baseURL=http://127.0.0.1:1456..1459/v1          apiKey=sk-subclaw-gateway
+services:
+  sensenova-k1:
+    image: cockpit-tools/cockpit-cliproxy:local
+    container_name: cliproxy-sensenova-1
+    restart: unless-stopped
+    ports: ["127.0.0.1:1456:1456"]
+    environment: &sn
+      COCKPIT_PROXY_HOST: 0.0.0.0
+      COCKPIT_PROXY_PORT: 1456
+      COCKPIT_CLIENT_API_KEY: ${SUBCLAW_GATEWAY_KEY:-sk-subclaw-gateway}
+      COCKPIT_UPSTREAM_BASE_URL: https://token.sensenova.cn
+      COCKPIT_UPSTREAM_API_KEY: ${SENSENOVA_KEY_1:?fill SENSENOVA_KEY_1 in .env}
+      COCKPIT_UPSTREAM_WIRE_API: chat_completions
+      COCKPIT_UPSTREAM_MODELS: glm-5.2,deepseek-v4-flash,sensenova-6.8-flash-lite
+      COCKPIT_PROVIDER_LABEL: SenseNova-k1
+      COCKPIT_SESSION_AFFINITY: "true"
+  sensenova-k2:
+    image: cockpit-tools/cockpit-cliproxy:local
+    container_name: cliproxy-sensenova-2
+    restart: unless-stopped
+    ports: ["127.0.0.1:1457:1456"]
+    environment:
+      <<: *sn
+      COCKPIT_UPSTREAM_API_KEY: ${SENSENOVA_KEY_2:?fill SENSENOVA_KEY_2 in .env}
+      COCKPIT_PROVIDER_LABEL: SenseNova-k2
+  sensenova-k3:
+    image: cockpit-tools/cockpit-cliproxy:local
+    container_name: cliproxy-sensenova-3
+    restart: unless-stopped
+    ports: ["127.0.0.1:1458:1456"]
+    environment:
+      <<: *sn
+      COCKPIT_UPSTREAM_API_KEY: ${SENSENOVA_KEY_3:?fill SENSENOVA_KEY_3 in .env}
+      COCKPIT_PROVIDER_LABEL: SenseNova-k3
+  sensenova-k4:
+    image: cockpit-tools/cockpit-cliproxy:local
+    container_name: cliproxy-sensenova-4
+    restart: unless-stopped
+    ports: ["127.0.0.1:1459:1456"]
+    environment:
+      <<: *sn
+      COCKPIT_UPSTREAM_API_KEY: ${SENSENOVA_KEY_4:?fill SENSENOVA_KEY_4 in .env}
+      COCKPIT_PROVIDER_LABEL: SenseNova-k4
