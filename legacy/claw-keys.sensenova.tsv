@@ -3,6 +3,7 @@
 #        overflow = pay-as-you-go (only used with --overflow)
 # 4 keys, same pool, gives capacity 4 per model
 # 创建完4个key后，把sk-后面的占位符替换为真实key
+# 【注意】真实 key 绝不写入本文件——本仓库已推送至公开远端。请存放于仓库外的本地私有文件。
 primary	https://token.sensenova.cn	sk-【KEY_3-填你新建的SenseNova密钥】
 primary	https://token.sensenova.cn	sk-【KEY_4-填你新建的SenseNova密钥】
 primary	https://token.sensenova.cn	sk-【KEY_5-填你新建的SenseNova密钥】

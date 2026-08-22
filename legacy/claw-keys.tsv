@@ -1,8 +1,7 @@
 # mimo key pool for run-mimo-pool.sh  (tier <TAB> endpoint <TAB> key)
 # tier: primary = token-plan (unlimited under subscription, default pool)
 #       overflow = pay-as-you-go (burns gift balance; only used with --overflow)
-# Probed live 2026-05-29. Keep this file chmod 600.
-primary	https://token-plan-cn.xiaomimimo.com/anthropic	REDACTED-LEAKED-KEY-1
-primary	https://token-plan-cn.xiaomimimo.com/anthropic	REDACTED-LEAKED-KEY-2
-overflow	https://api.xiaomimimo.com/anthropic	REDACTED-LEAKED-KEY-3
-overflow	https://api.xiaomimimo.com/anthropic	REDACTED-LEAKED-KEY-4
+# 【2026-08-22 脱敏】原文件含 4 个真实 MiMo key，因误提交并推送至远端而移除；
+# 这些 key 必须视为已泄露并在厂商控制台吊销。真实 key 只存放在仓库外的本地私有文件。
+primary	https://token-plan-cn.xiaomimimo.com/anthropic	tp-REPLACE_WITH_REAL_KEY_1
+overflow	https://api.xiaomimimo.com/anthropic	sk-REPLACE_WITH_REAL_KEY_2
