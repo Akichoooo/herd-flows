@@ -9,12 +9,17 @@ author: Akichoooo
 
 You (Claude) are the orchestrator (牧人). Workers (羊群) run in herdr panes, each a real `claude` CLI instance pointed at a cockpit-cliproxy gateway instance (:1456-1459) fronting SenseNova/LLMs. The verifier layer (牧羊犬) auto-checks worker output and redoes on FAIL without spending your tokens.
 
+## REPO ROOT (`<ROOT>`)
+
+All `<ROOT>` below refer to the herd-flows repo root, default `D:\devloop\workSpace\app_ZCode\herd-flows`.
+If that path does not exist, locate `runner\herdr-pool.ps1` first (search your workspace or ask the user) and substitute.
+
 ## ROUTING RULES
 
 1. Orchestrator engine = **claude**. The runner is engine-neutral PowerShell; do not hand-write `claude -p` flags.
-2. All dispatch goes through `D:\devloop\workSpace\app_ZCode\herd-flows\runner\herdr-pool.ps1`. Never spawn worker CLIs directly.
-3. Before first use in a session: `powershell D:\devloop\workSpace\app_ZCode\herd-flows\runner\herdr-pool.ps1 -Ensure` (verifies herdr pasture session, writes worker settings, probes gateway ports).
-4. If gateway ports report DOWN, tell the user to run `powershell D:\devloop\workSpace\app_ZCode\herd-flows\scripts\start-proxy.ps1` (or `docker compose -f D:\devloop\workSpace\app_ZCode\herd-flows\proxy\compose.subclaw-pool.yml --env-file D:\devloop\workSpace\app_ZCode\herd-flows\proxy\.env up -d`).
+2. All dispatch goes through `<ROOT>\runner\herdr-pool.ps1`. Never spawn worker CLIs directly.
+3. Before first use in a session: `powershell <ROOT>\runner\herdr-pool.ps1 -Ensure` (verifies herdr pasture session, writes worker settings, probes gateway ports). Exit code 0 = ready; 1 = herdr session down; 2 = all gateway ports down.
+4. If gateway ports report DOWN, tell the user to run `powershell <ROOT>\scripts\start-proxy.ps1` (or `docker compose -f <ROOT>\proxy\compose.subclaw-pool.yml --env-file <ROOT>\proxy\.env up -d`).
 
 ## Profiles (model + gateway port + CLI)
 
@@ -24,12 +29,12 @@ You (Claude) are the orchestrator (牧人). Workers (羊群) run in herdr panes,
 | `deepseek` | deepseek-v4-flash | 1457 | reasoning, audit, cross-file analysis, verification |
 | `glm` | glm-5.2 | 1456 | long-context reading, code review |
 
-Override port per dispatch with `-Port <n>` (e.g. test against the single live instance `1456`).
+Override port per dispatch with `-Port <n>`.
 
 ## Dispatch
 
 ```powershell
-powershell D:\devloop\workSpace\app_ZCode\herd-flows\runner\herdr-pool.ps1 -Dispatch "<task>" -Profile flash -Name w1
+powershell <ROOT>\runner\herdr-pool.ps1 -Dispatch "<task>" -Profile flash -Name w1
 # async non-blocking dispatch: -Async
 # with verifier (default on): omit -NoVerify
 # read back later: -Read w1
@@ -37,11 +42,14 @@ powershell D:\devloop\workSpace\app_ZCode\herd-flows\runner\herdr-pool.ps1 -Disp
 # clean up:        -Clean w1
 ```
 
-The runner: splits a pane (smart direction — wide→right, narrow→down), starts `claude --settings <generated>`, prompts with `--wait`, reads output, then runs the verifier loop (max 2 rounds; FAIL → redoes; PASS → done). Output is printed to your context as a captured pane snapshot.
+The runner: splits a pane (smart direction — wide→right, narrow→down), starts `claude --settings <generated>`, prompts with `--wait`, reads output, then runs the verifier loop (max 2 rounds; FAIL → redoes; PASS → done).
+
+**Exit codes**: `0` = done / verifier PASS (or `-NoVerify`); `2` = verifier FAIL after max rounds (inspect with `-Read`); `3` = worker blocked (needs human attention).
 
 ## Verifier layer (saves your tokens)
 
 - Verifier = a second worker on `deepseek` profile acting as the sheepdog / quality inspector.
+- It is instructed to actually inspect delivered files (not just the worker's claims) and emit a final `VERDICT:` line the runner parses.
 - Worker FAILs are redone **without** your intervention; you only see the final pass/abort.
 - Skip with `-NoVerify` for trivial tasks.
 

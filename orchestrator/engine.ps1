@@ -31,11 +31,17 @@ function Execute-Ensure {
 
     Write-Host "=== [3/3] Cockpit 反代网关池健康探测 ===" -ForegroundColor Cyan
     $pool = Probe-GatewayPool -BaseUrl $Config.gateway.baseUrl -Ports $Config.gateway.ports -ApiKey $Config.gateway.apiKey
+    $anyOk = $false
     foreach ($p in $Config.gateway.ports) {
         $ok = $pool[$p]
+        if ($ok) { $anyOk = $true }
         $tag = if ($ok) { "[ok]" } else { "[DOWN]" }
         $color = if ($ok) { "Green" } else { "Red" }
         Write-Host ("{0} 网关端口 :{1}" -f $tag, $p) -ForegroundColor $color
+    }
+    if (-not $anyOk) {
+        Write-Host "[✗] 所有网关端口均不可用，请启动: powershell scripts\start-proxy.ps1" -ForegroundColor Red
+        exit 2
     }
     exit 0
 }
@@ -76,9 +82,9 @@ function Execute-Dispatch {
     # 2. 动态生成 settings.json
     $settingsFile = Generate-WorkerSettings -BaseDir $BaseDir -Config $Config -ProfileName $Profile -ActualPort $targetPort
 
-    # 3. 检查是否有同名活着的 Agent（省分屏；复用已存在 Agent）
+    # 3. 检查是否有同名活着的 Agent（省分屏；复用已存在 Agent）。锚定 JSON 边界，避免 w1 误匹配 w10
     $liveAgents = Get-PaneAgentInfo -HerdrExe $HerdrExe -Session $Session
-    $reused = $liveAgents -match ('"name":"' + $Name + '"')
+    $reused = [bool]($liveAgents -match ('"name"\s*:\s*"' + [regex]::Escape($Name) + '"\s*[,}]'))
 
     if ($reused) {
         Write-Host "[1/4] 复用运行中的 Agent '$Name'" -ForegroundColor Cyan
@@ -103,40 +109,51 @@ function Execute-Dispatch {
     $promptRes = Prompt-PaneAgent -HerdrExe $HerdrExe -Session $Session -AgentName $Name -PromptText $Task -TimeoutMs $TimeoutMs
     Write-Host "[3/4] Worker 状态: $($promptRes.status)" -ForegroundColor Yellow
 
+    if ($promptRes.status -eq "blocked") {
+        Write-Host "[!] Worker '$Name' 状态为 blocked（可能在等待确认/授权），跳过质检。请人工检查: powershell runner\herdr-pool.ps1 -Read $Name" -ForegroundColor Red
+        exit 3
+    }
+
     # 5. 抓取 Worker 初步产出
     $readLines = if ($Config.defaults.readLines) { $Config.defaults.readLines } else { 120 }
     $output = Read-PaneAgentOutput -HerdrExe $HerdrExe -Session $Session -AgentName $Name -Lines $readLines
     Write-Host "`n===== Worker 交付物 =====" -ForegroundColor Cyan
     Write-Host $output
 
-    # 6. 牧羊犬质检验收循环 (Verifier Loop)
+    # 6. 牧羊犬质检验收循环 (Verifier Loop；同一质检 Agent 跨轮复用，避免每轮冷启动)
+    #    退出码: 0 = PASS/免质检；2 = 重试耗尽仍 FAIL；3 = worker blocked
     $useVerifier = $Config.verifier.enabled -and (-not $NoVerify)
-    if ($useVerifier -and $promptRes.status -ne "blocked") {
+    if ($useVerifier) {
         $maxRounds = if ($Config.verifier.maxRounds) { $Config.verifier.maxRounds } else { 2 }
-        for ($round = 1; $round -le $maxRounds; $round++) {
-            Write-Host "`n===== 牧羊犬质检验收 (第 $round 轮) =====" -ForegroundColor Magenta
-            $vResult = Invoke-TaskVerification -HerdrExe $HerdrExe -Session $Session -Config $Config -WorkerName $Name -TaskText $Task -OutputText $output -BaseDir $BaseDir
-            Write-Host $vResult.raw
+        $verifier = $null
+        try {
+            $verifier = Start-VerifierAgent -HerdrExe $HerdrExe -Session $Session -Config $Config -BaseDir $BaseDir -WorkerName $Name
+            for ($round = 1; $round -le $maxRounds; $round++) {
+                Write-Host "`n===== 牧羊犬质检验收 (第 $round 轮) =====" -ForegroundColor Magenta
+                $vResult = Invoke-VerifierRound -Verifier $verifier -HerdrExe $HerdrExe -Session $Session -TaskText $Task -OutputText ($output | Out-String) -Config $Config
+                Write-Host $vResult.raw
 
-            if ($vResult.verdict -eq "PASS") {
-                Write-Host "[✓] 质检合格: PASS (放行交付)" -ForegroundColor Green
-                break
+                if ($vResult.verdict -eq "PASS") {
+                    Write-Host "[✓] 质检合格: PASS (放行交付)" -ForegroundColor Green
+                    exit 0
+                }
+
+                if ($round -ge $maxRounds) { break }
+
+                Write-Host "[↻] 质检不合格，生成重做指令打回 Worker '$Name' ..." -ForegroundColor Yellow
+                Write-Host "    打回原因: $($vResult.reasons)" -ForegroundColor Yellow
+                $redoPrompt = if ($vResult.redo) { $vResult.redo } else { "请根据上述质检意见重新完善交付物。" }
+
+                Prompt-PaneAgent -HerdrExe $HerdrExe -Session $Session -AgentName $Name -PromptText $redoPrompt -TimeoutMs $TimeoutMs | Out-Null
+                $output = Read-PaneAgentOutput -HerdrExe $HerdrExe -Session $Session -AgentName $Name -Lines $readLines
+                Write-Host "`n----- Worker 重做交付物 -----" -ForegroundColor Cyan
+                Write-Host $output
             }
-
-            if ($round -ge $maxRounds) {
-                Write-Host "[✗] 达到最大质检轮次 ($round 轮)，质检结论: FAIL" -ForegroundColor Red
-                break
-            }
-
-            Write-Host "[↻] 质检不合格，生成重做指令打回 Worker '$Name' ..." -ForegroundColor Yellow
-            Write-Host "    打回原因: $($vResult.reasons)" -ForegroundColor Yellow
-            $redoPrompt = if ($vResult.redo) { $vResult.redo } else { "请根据上述质检意见重新完善交付物。" }
-            
-            Prompt-PaneAgent -HerdrExe $HerdrExe -Session $Session -AgentName $Name -PromptText $redoPrompt -TimeoutMs $TimeoutMs | Out-Null
-            $output = Read-PaneAgentOutput -HerdrExe $HerdrExe -Session $Session -AgentName $Name -Lines $readLines
-            Write-Host "`n----- Worker 重做交付物 -----" -ForegroundColor Cyan
-            Write-Host $output
+        } finally {
+            if ($verifier) { Stop-VerifierAgent -HerdrExe $HerdrExe -Session $Session -Verifier $verifier }
         }
+        Write-Host "[✗] 达到最大质检轮次 ($maxRounds 轮)，质检最终结论: FAIL。请人工检查: powershell runner\herdr-pool.ps1 -Read $Name" -ForegroundColor Red
+        exit 2
     }
     exit 0
 }

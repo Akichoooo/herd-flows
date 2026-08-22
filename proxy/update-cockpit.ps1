@@ -1,9 +1,13 @@
 ﻿# Cockpit Tools 上游更新/同步脚本
-# 用法: powershell proxy\update-cockpit.ps1 [-SourcePath "D:\Docker Project\cockpit-tools"]
+# 用法: powershell proxy\update-cockpit.ps1 [-SourcePath "路径"]
+#       路径解析优先级: 参数 > 环境变量 COCKPIT_TOOLS_DIR > 默认路径
 param(
-    [string]$SourcePath = "D:\Docker Project\cockpit-tools"
+    [string]$SourcePath = ""
 )
 $ErrorActionPreference = "Stop"
+if (-not $SourcePath) {
+    $SourcePath = if ($env:COCKPIT_TOOLS_DIR) { $env:COCKPIT_TOOLS_DIR } else { "D:\Docker Project\cockpit-tools" }
+}
 
 Write-Host "=== 检查 Cockpit Tools 上游源 ===" -ForegroundColor Cyan
 if (Test-Path $SourcePath) {

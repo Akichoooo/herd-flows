@@ -1,7 +1,13 @@
 ﻿# 启动 Cockpit Tools 图形化配置界面 (Web / GUI)
-# 用法: powershell scripts\start-gui.ps1
+# 用法: powershell scripts\start-gui.ps1 [-CockpitDir "路径"]
+#       目录解析优先级: 参数 > 环境变量 COCKPIT_TOOLS_DIR > 默认路径
+param(
+    [string]$CockpitDir = ""
+)
 $ErrorActionPreference = "Stop"
-$CockpitDir = "D:\Docker Project\cockpit-tools"
+if (-not $CockpitDir) {
+    $CockpitDir = if ($env:COCKPIT_TOOLS_DIR) { $env:COCKPIT_TOOLS_DIR } else { "D:\Docker Project\cockpit-tools" }
+}
 
 Write-Host "=== 启动 Cockpit Tools 图形化配置中心 ===" -ForegroundColor Cyan
 

@@ -7,7 +7,7 @@ function Find-HerdrExe([string]$ExplicitPath = "") {
     if ($ExplicitPath -and (Test-Path $ExplicitPath)) { return $ExplicitPath }
     $cmd = Get-Command herdr -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    $rel = "C:\Users\92586\.herdr\packages\standalone\releases"
+    $rel = Join-Path $env:USERPROFILE ".herdr\packages\standalone\releases"
     if (Test-Path $rel) {
         $latest = Get-ChildItem $rel -Directory | Sort-Object Name -Descending | Select-Object -First 1
         if ($latest) {
@@ -19,11 +19,30 @@ function Find-HerdrExe([string]$ExplicitPath = "") {
 }
 
 function Invoke-Hdr([string]$HerdrExe, [string]$Session, [string[]]$HdrArgs) {
-    $parts = @($HerdrExe, '--session', $Session) + $HdrArgs
-    $line = ($parts | ForEach-Object { if ("$_" -match '\s') { '"{0}"' -f $_ } else { "$_" } }) -join ' '
-    if ($env:SUBCLAW_DEBUG) { Write-Host "[dbg-hdr] $line" -ForegroundColor DarkGray }
-    $out = cmd /c $line 2>&1
-    return $out
+    # 直传数组参数（不走 cmd /c 拼串）：消除 cmd 元字符（% & ^ | 等）注入与内嵌引号丢失。
+    # PS 5.1 会为含空白参数自动加引号但不转义内嵌双引号，这里按 MS argv 规则预转义为 \"，
+    # 由对端（Rust/CRT）解析还原。`--` 仍经 $DD 变量传递，规避 PS 解析裸 -- 的问题。
+    $allArgs = @('--session', $Session) + @($HdrArgs)
+    if ($env:SUBCLAW_DEBUG) { Write-Host ("[dbg-hdr] " + ($allArgs -join ' ')) -ForegroundColor DarkGray }
+    $safeArgs = foreach ($a in $allArgs) {
+        $s = "$a" -replace '"', '\"'
+        # 含空白的参数会被 PS 自动加引号，末尾反斜杠需翻倍，否则 \" 会被对端当作转义引号
+        if ($s -match '\s' -and $s -match '\\+$') { $s += '\' }
+        $s
+    }
+
+    # EAP=Stop 时 PS 5.1 对原生程序 stderr 重定向会直接抛异常，调用期间局部降级
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $out = & $HerdrExe @safeArgs 2>&1
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    $flat = foreach ($line in $out) {
+        if ($line -is [System.Management.Automation.ErrorRecord]) { $line.Exception.Message } else { "$line" }
+    }
+    return $flat
 }
 
 function Test-HerdrSessionAlive([string]$HerdrExe, [string]$Session) {
@@ -54,8 +73,7 @@ function Split-SmartPane([string]$HerdrExe, [string]$Session, [string]$Cwd = "")
 
 function Start-PaneAgent([string]$HerdrExe, [string]$Session, [string]$AgentName, [string]$PaneId, [string]$SettingsFile, [string]$Kind = "claude", [int]$TimeoutMs = 60000) {
     Start-Sleep -Seconds 1
-    $global:DD = "--"
-    $argsList = @("agent", "start", $AgentName, "--kind", $Kind, "--pane", $PaneId, "--timeout", "$TimeoutMs", $global:DD, "--settings", $SettingsFile)
+    $argsList = @("agent", "start", $AgentName, "--kind", $Kind, "--pane", $PaneId, "--timeout", "$TimeoutMs", $DD, "--settings", $SettingsFile)
     $startOut = Invoke-Hdr $HerdrExe $Session $argsList | Out-String
     if ($startOut -match '"agent_status":"(idle|working)"') {
         return $true

@@ -39,13 +39,13 @@
 ┌────────────────────────────────────────────────────────┐
 │  5. 出海反代网关 (proxy/ 模块 - 基于 Cockpit Tools)     │
 │  - Docker 4 实例网关池 (:1456 ~ :1459) 或 Win 本地客户端│
-│  - 自动协议转换 (Claude ◄► OpenAI/SenseNova) / 429 容错│
+│  - 自动协议转换 (Claude ◄► OpenAI/SenseNova) / 派发时端口故障自动切换│
 └────────────────────────────────────────────────────────┘
 ```
 
 1. **牧人（Orchestrator）**：Claude Code 或 Kimi Code，只负责理解用户意图与验收最终成品。
 2. **羊群（Workers）**：运行在廉价高吞吐模型（`sensenova-6.8-flash-lite`、`glm-5.2`），在后台 Pane 中大量读写代码、运行命令。
-3. **牧羊犬（Verifier）**：运行在严谨推理模型（`deepseek-v4-flash`），在独立 Pane 中自动质检验收。若发现敷衍或缺陷，直接生成 `redo` 指令打回 Worker 重做（最多 2 轮），**所有失败与重试在底层全部消化，主模型始终只看合格品**。
+3. **牧羊犬（Verifier）**：运行在严谨推理模型（`deepseek-v4-flash`），在独立 Pane 中自动质检验收——质检 Prompt 要求它**实际查看交付文件**核对，而非只凭工作者自述。若发现敷衍或缺陷，直接生成 `redo` 指令打回 Worker 重做（最多 2 轮），**所有失败与重试在底层全部消化，主模型始终只看合格品**。
 
 ---
 
@@ -114,6 +114,8 @@ herd-flows/
 ---
 
 ## 🚀 快速开始
+
+> **平台要求**：当前编排脚本为 Windows + PowerShell 5.1 专用（上游 Herdr 本身跨平台，Linux/macOS 需自行移植脚本）。
 
 ### 1. 依赖自检与初始化
 ```powershell
@@ -191,3 +193,15 @@ powershell scripts\update-all-upstreams.ps1
 - `vendor/herdr` 自动同步最新 release 二进制；
 - `proxy/sidecars/cockpit-cliproxy` 自动从上游同步源码；
 - `orchestrator/` 业务逻辑与适配层保持完好。
+
+---
+
+## 🔐 安全须知
+
+- 真实厂商 Key 只存放于 `proxy/.env`（已被 .gitignore 排除）或环境变量，**绝不写入任何被 git 跟踪的文件**。
+- 历史提交 `ee13c7f` 曾误含真实 MiMo key（已于 2026-08-22 脱敏）。**这些 key 必须视为已泄露，请在厂商控制台吊销重建**；如需彻底清除 git 历史：
+  ```powershell
+  git filter-repo --path legacy/claw-keys.tsv --invert-paths
+  git push --force
+  ```
+- 本地网关准入 key（`sk-subclaw-gateway`）仅用于本机 `127.0.0.1` 端口准入，风险可控；如需修改请同步更新 `runner/config.json` 与 `proxy/.env`。

@@ -33,6 +33,7 @@ function Generate-WorkerSettings([string]$BaseDir, [object]$Config, [string]$Pro
     } | ConvertTo-Json -Depth 5
 
     $filePath = Join-Path $dir "$ProfileName.settings.json"
-    Set-Content -Path $filePath -Value $settings -Encoding UTF8
+    # 无 BOM 写入：claude CLI (Node JSON.parse) 遇 BOM 会解析失败
+    [System.IO.File]::WriteAllText($filePath, $settings, (New-Object System.Text.UTF8Encoding $false))
     return $filePath
 }

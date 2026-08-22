@@ -1,7 +1,6 @@
 # 真实 key 绝不入库
-gateway/.env
+proxy/.env
 *.env
-!gateway/.env.example
 !**/.env.example
 
 # 运行时生成的 worker settings（含注入的网关地址）

@@ -10,6 +10,7 @@ Write-Host "==========================================" -ForegroundColor Cyan
 # 1. 启动网关池
 Write-Host "`n[1/3] 启动 Cockpit 反代网关池 ..." -ForegroundColor Cyan
 powershell -File (Join-Path $PSScriptRoot "start-proxy.ps1")
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # 2. 确保 Herdr 会话在后台运行
 Write-Host "`n[2/3] 确保 Herdr 牧场后台会话 ..." -ForegroundColor Cyan
@@ -23,7 +24,10 @@ $alive = Test-HerdrSessionAlive -HerdrExe $HerdrExe -Session $Session
 if (-not $alive) {
     Write-Host "[start] 正在拉起 Herdr 会话 '$Session' ..." -ForegroundColor Yellow
     Start-Process -WindowStyle Hidden $HerdrExe -ArgumentList "--session", $Session
-    Start-Sleep -Seconds 2
+    # 后台守护进程就绪需要时间，最多等 10 秒再复检
+    for ($i = 0; $i -lt 5 -and -not (Test-HerdrSessionAlive -HerdrExe $HerdrExe -Session $Session); $i++) {
+        Start-Sleep -Seconds 2
+    }
 } else {
     Write-Host "[ok] Herdr 会话 '$Session' 已在运行" -ForegroundColor Green
 }
@@ -31,6 +35,10 @@ if (-not $alive) {
 # 3. 运行 Ensure 自检
 Write-Host "`n[3/3] 运行编排引擎 Ensure 自检 ..." -ForegroundColor Cyan
 powershell -File (Join-Path $RootDir "runner\herdr-pool.ps1") -Ensure
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`n[✗] 自检未通过 (exit $LASTEXITCODE)，请按上方提示修复后重试" -ForegroundColor Red
+    exit $LASTEXITCODE
+}
 
 Write-Host "`n==========================================" -ForegroundColor Green
 Write-Host "  全套生态已就绪！" -ForegroundColor Green
