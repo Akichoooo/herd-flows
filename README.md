@@ -1,98 +1,193 @@
 # herd-flows
 
-herdr 驱动的动态 worker 池 + 验证者循环。编排者派活 → herdr 养一群 claude worker 在 pane 里干 → 验证者监督放行/打回 → 经 cockpit-cliproxy 网关出海到 SenseNova。省主编排者 token：FAIL 循环在验证者层消化，编排者只看合格品。
+> **基于 Herdr 终端牧场 + Cockpit 反代网关的轻量高效 Agent 编排流水线**  
+> 独创 **“牧人（编排者）- 羊群（Worker）- 牧羊犬（Verifier）”** 三级分工架构与底层自闭环质检，极大节省主模型 Token。
 
-## 架构
+---
+
+## 🌟 核心理念：牧人、羊群与牧羊犬
+
+在传统的 Agent 派发中，子模型报错或写出低质代码时，主模型需要耗费大量昂贵的上下文去阅读、分析并重新指派，不仅速度慢，而且成本极高。
+
+`herd-flows` 引入了 **三级经济学分工模型**：
 
 ```
-编排者（claude / kimi，任意 CLI agent）
-  │  runner/herdr-pool.ps1 -Dispatch
-  ▼
-herdr session 'subclaw'（终端牧场，断线不死，状态感知 idle/working/blocked）
-  ├── pane: worker (claude CLI + --settings 注入网关)
-  ├── pane: worker (claude CLI)
-  └── pane: verifier (claude CLI, deepseek 档)
-       │  FAIL → prompt 打回 worker 重做（不打扰编排者）
-       ▼
-cockpit-cliproxy 网关池 :1456-1459（每端口一 SenseNova key）
-  └── SenseNova 上游（glm-5.2 / deepseek-v4-flash / 6.8-flash-lite）
+┌────────────────────────────────────────────────────────┐
+│             1. 牧人 (Orchestrator - 昂贵高智商)          │
+│   - Claude Code / Kimi Code 等主编排 Agent             │
+│   - 核心原则: "只动脑派活，绝不看脏活过程，绝不烧贵 Token"   │
+└───────────────────────────┬────────────────────────────┘
+                            │ 派发结构化任务契约 (Brief)
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│        2. 核心编排调度引擎 (orchestrator/ 专属业务模块)  │
+│   - 档位路由 (flash / deepseek / glm)                  │
+│   - 动态环境隔离 (settings.json 毫秒级生成)              │
+│   - 状态感知驱动 (借助 Herdr 检测 idle/working/blocked) │
+└──────────────┬──────────────────────────▲──────────────┘
+               │                          │
+               ▼                          │ 自动循环质检 (不惊动主模型)
+┌──────────────────────────────┐  ┌───────┴──────────────────────┐
+│  3. 羊群 (Worker 廉价干活)   │  │  4. 牧羊犬 (Verifier 独立质检)│
+│  - 运行 6.8-flash-lite/glm   │  │  - 运行 DeepSeek 档位        │
+│  - 在独立 Pane 中扫码/写代码 │  │  - 严格审核交付物是否实质完整│
+│  - 产出初步半成品            │─►│  - PASS: 放行交付主模型      │
+│                              │  │  - FAIL: 生成 redo 指令打回  │
+└──────────────┬───────────────┘  └──────────────────────────────┘
+               │
+               ▼
+┌────────────────────────────────────────────────────────┐
+│  5. 出海反代网关 (proxy/ 模块 - 基于 Cockpit Tools)     │
+│  - Docker 4 实例网关池 (:1456 ~ :1459) 或 Win 本地客户端│
+│  - 自动协议转换 (Claude ◄► OpenAI/SenseNova) / 429 容错│
+└────────────────────────────────────────────────────────┘
 ```
 
-## 目录结构
+1. **牧人（Orchestrator）**：Claude Code 或 Kimi Code，只负责理解用户意图与验收最终成品。
+2. **羊群（Workers）**：运行在廉价高吞吐模型（`sensenova-6.8-flash-lite`、`glm-5.2`），在后台 Pane 中大量读写代码、运行命令。
+3. **牧羊犬（Verifier）**：运行在严谨推理模型（`deepseek-v4-flash`），在独立 Pane 中自动质检验收。若发现敷衍或缺陷，直接生成 `redo` 指令打回 Worker 重做（最多 2 轮），**所有失败与重试在底层全部消化，主模型始终只看合格品**。
 
-| 路径 | 内容 |
-|------|------|
-| `runner/herdr-pool.ps1` | 引擎中立 runner（dispatch/read/status/verify/clean） |
-| `runner/config.json` | 网关池端口、profiles、验证者 prompt 模板 |
-| `gateway/compose.subclaw-pool.yml` | 4-key cliproxy 池（:1456-1459） |
-| `gateway/.env.example` | 4-key 占位模板（真实 .env 不入库） |
-| `gateway/Dockerfile.cockpit-cliproxy` | cliproxy 镜像构建（自包含，不依赖外部仓库） |
-| `gateway/docker/` | cliproxy 构建辅助文件 |
-| `skills/subclaw.claude.md` | Claude Code 入口技能 |
-| `skills/subclaw.kimi.md` | Kimi Code 入口技能 |
-| `scripts/install-deps.ps1` | 依赖安装 + 自检（herdr/docker/cliproxy image/claude CLI） |
-| `docs/ADR-001-architecture.md` | 架构决策记录 |
-| `docs/briefs/` | subclaw 历史设计 brief + 结果（armor/face-enroll/crawler 等） |
-| `legacy/` | 旧版 claw-proxy 时代归档（run-claw-pool.sh 等，不再使用） |
+---
 
-## 快速开始
+## 🖥️ 双 UI 协同架构
 
-### 1. 安装依赖
+系统采用清晰的“前线干活 + 后勤配置”双 UI 模式：
+
+- **UI ①：Herdr 终端执行牧场（TUI / 前线）**
+  - 基于 Rust 开发的原生终端多路复用界面；
+  - 实时展示所有 Pane 分屏、工作区拓扑、Agent 语义状态（🟢 `working` / 🟡 `blocked` / ⚪ `idle`）；
+  - 支持 `Ctrl+B` 快捷键与鼠标点击/拖拽分屏。
+- **UI ②：Cockpit Tools 反代配置（后勤）**
+  - **Windows 桌面模式**：直接使用 Cockpit Tools 桌面端图形化界面管理厂商 Key、本地代理端口与模型映射；
+  - **Docker 模式**：通过 `proxy/compose.subclaw-pool.yml` 启动 4 端口网关池，浏览器与容器化一键管理。
+
+---
+
+## 📁 模块化目录结构
+
+项目各模块高度解耦，**业务编排逻辑独立沉淀，上游组件（Herdr / Cockpit Tools）支持无损一键更新**：
+
+```
+herd-flows/
+├── orchestrator/                    # ⭐️【核心业务模块：编排与沟通优化引擎】
+│   ├── engine.ps1                   # 调度总引擎 (Ensure / Dispatch / Verify 闭环 / Clean)
+│   ├── verifier.ps1                 # 牧羊犬质检评估器 (独立 Pane 质检、提取 redo)
+│   ├── profile-manager.ps1          # Worker 档位管理与 settings.json 动态注入
+│   ├── adapters/
+│   │   ├── herdr-adapter.ps1        # Herdr 终端牧场适配层 (隔离 Herdr CLI 变动)
+│   │   └── gateway-adapter.ps1      # Cockpit 反代网关适配层 (端口探测、429 容错)
+│   └── templates/
+│       └── verifier-default.txt     # 质检员默认 Prompt 验收模板
+│
+├── proxy/                           # ⭐️【Cockpit Tools 反代与配置模块 (支持上游更新)】
+│   ├── sidecars/cockpit-cliproxy/   # 完整的 Go 源码 (自包含，支持离线/独立构建)
+│   ├── Dockerfile.cockpit-cliproxy  # 独立构建 Docker 镜像
+│   ├── compose.subclaw-pool.yml     # 4 端口网关 Docker 编排 (:1456 ~ :1459)
+│   ├── .env.example                 # 多 Key 环境变量模板
+│   └── update-cockpit.ps1           # 上游 Cockpit Tools 源码同步更新脚本
+│
+├── vendor/
+│   └── herdr/                       # ⭐️【Herdr 运行时管理 (支持上游更新)】
+│       ├── install-herdr.ps1        # Herdr 运行时安装与自检
+│       ├── update-herdr.ps1         # Herdr 官方版本升级脚本
+│       └── README.md
+│
+├── runner/                          # 【用户与 CLI 交互入口】
+│   ├── herdr-pool.ps1               # 统一对外 CLI（透传调用 orchestrator）
+│   └── config.json                  # 统一 Profiles 与端口映射配置
+│
+├── skills/                          # 【Agent 入口技能】
+│   ├── subclaw.claude.md            # Claude Code 入口技能 (/subclaw)
+│   └── subclaw.kimi.md              # Kimi Code 入口技能 (/subclaw)
+│
+├── scripts/                         # 【全套运维与一键脚本】
+│   ├── install-deps.ps1             # 依赖一键安装与自检
+│   ├── start-proxy.ps1              # 启动网关池 (Docker 或本地模式)
+│   ├── start-herdr.ps1              # 启动/进入 Herdr 终端牧场 (TUI)
+│   ├── start-all.ps1                # 一键拉起全套生态
+│   └── update-all-upstreams.ps1     # ⭐️ 一键检查并更新 Herdr 与 Cockpit Tools 上游
+│
+├── docs/                            # 架构决策记录与历史 Task Brief 归档
+└── README.md                        # 本手册
+```
+
+---
+
+## 🚀 快速开始
+
+### 1. 依赖自检与初始化
 ```powershell
 powershell scripts\install-deps.ps1
 ```
-自动装 herdr（Windows beta）、验证 Docker、build cliproxy image、检查 claude CLI。
+脚本会自动检查/安装 Herdr 运行时、Docker 环境、独立编译 `cockpit-cliproxy` 本地镜像并检测 Claude CLI。
 
-### 2. 启动网关池
+### 2. 配置厂商 API Key
+复制 `proxy/.env.example` 为 `proxy/.env` 并填入 Key：
 ```bash
-cp gateway/.env.example gateway/.env    # 填 4 个 SenseNova key
-docker compose -f gateway/compose.subclaw-pool.yml --env-file gateway/.env up -d
+cp proxy/.env.example proxy/.env
 ```
 
-### 3. 安装技能入口
+### 3. 一键启动全套生态
 ```powershell
-# Claude Code
-Copy-Item skills/subclaw.claude.md ~/.claude/commands/subclaw.md
-# Kimi Code
-Copy-Item skills/subclaw.kimi.md ~/.kimi-code/skills/subclaw/SKILL.md
+powershell scripts\start-all.ps1
 ```
+会自动拉起网关池、激活 Herdr 后台会话并完成自检。
 
-### 4. 自检
+### 4. 安装 Agent 技能
+- **Claude Code**:
+  ```powershell
+  Copy-Item skills/subclaw.claude.md ~/.claude/commands/subclaw.md
+  ```
+- **Kimi Code**:
+  ```powershell
+  Copy-Item skills/subclaw.kimi.md ~/.kimi-code/skills/subclaw/SKILL.md
+  ```
+
+---
+
+## 🛠️ 使用指令
+
 ```powershell
-powershell runner\herdr-pool.ps1 -Ensure
-# 应见: [ok] herdr session 'subclaw' 运行中 / [ok] gateway :1456-1459
-```
+# 1. 派发任务 (默认开启 DeepSeek 牧羊犬质检闭环)
+powershell runner\herdr-pool.ps1 -Dispatch "扫描项目中的 TypeScript 类型隐患并修复" -Profile flash -Name w1
 
-## 用法
+# 2. 异步非阻塞派发 (立即返回，后台运行)
+powershell runner\herdr-pool.ps1 -Dispatch "重构认证模块" -Profile deepseek -Async -Name w2
 
-```powershell
-# 派活（验证者默认开）
-powershell runner\herdr-pool.ps1 -Dispatch "<task>" -Profile flash -Name w1
-# -Profile: flash(6.8-flash-lite,:1458) | deepseek(:1457) | glm(:1456)
-# -NoVerify 跳过验证者
-
-# 读 worker 输出
+# 3. 读取 Worker 产出与日志
 powershell runner\herdr-pool.ps1 -Read w1
-# 查状态
+
+# 4. 查看当前所有 Worker 状态
 powershell runner\herdr-pool.ps1 -Status
-# 清理 worker
+
+# 5. 手动运行质检
+powershell runner\herdr-pool.ps1 -Verify w1 -Task "任务描述"
+
+# 6. 回收清理 Worker Pane
 powershell runner\herdr-pool.ps1 -Clean w1
+
+# 7. 进入 Herdr 全屏终端看板
+powershell scripts\start-herdr.ps1
 ```
 
-## 依赖
+---
 
-| 组件 | 说明 | 安装 |
-|------|------|------|
-| herdr 0.8+ | 终端牧场，状态检测 | `irm https://herdr.dev/install.ps1 \| iex` |
-| Docker | 网关池运行环境 | Docker Desktop |
-| cockpit-cliproxy | 多协议 LLM 网关 | `scripts/install-deps.ps1` 自动 build |
-| claude CLI | worker 执行引擎 | `npm i -g @anthropic-ai/claude-code` |
-| SenseNova key | 上游模型供应商 | console.sensenova.cn → API Keys |
+## ⚙️ 模型档位矩阵 (Profiles)
 
-## 血统
+| 档位 Profile | 默认模型 | 默认端口 | 角色与典型应用场景 |
+|---|---|---|---|
+| `flash` | `sensenova-6.8-flash-lite` | `:1458` | 羊群（Worker）：初筛扫描、批量初稿、文件分类、轻量修改 |
+| `deepseek` | `deepseek-v4-flash` | `:1457` | 牧羊犬（Verifier）：深度逻辑推理、架构审查、跨文件重构、产物质检 |
+| `glm` | `glm-5.2` | `:1456` | 羊群（Worker）：超长上下文阅读、复杂业务代码编写 |
 
-延续 Dragnet（天网/拖网）+ Trawler（拖网渔船）生态。herd-flows 是"群工作流"层——herdr 本意 herd（放牧），编排者=牧人，worker=羊群，验证者=牧犬。
+---
 
-## 设计细节
+## 🔄 上游组件无损升级
 
-见 `docs/ADR-001-architecture.md`（架构决策记录：为什么三层分离、踩过的坑、被否决的替代方案）。
+当 Herdr 或 Cockpit Tools 官方发布新版本时，无需担心代码污染，运行一键更新：
+```powershell
+powershell scripts\update-all-upstreams.ps1
+```
+- `vendor/herdr` 自动同步最新 release 二进制；
+- `proxy/sidecars/cockpit-cliproxy` 自动从上游同步源码；
+- `orchestrator/` 业务逻辑与适配层保持完好。

@@ -1,35 +1,50 @@
-# herd-flows 依赖安装 + 自检
+﻿# herd-flows 依赖安装 + 环境自检脚本
 # 用法: powershell scripts\install-deps.ps1
 $ErrorActionPreference = "Stop"
+$RootDir = Split-Path $PSScriptRoot -Parent
 
-Write-Host "=== 1. herdr ===" 
-$herdr = Get-Command herdr -ErrorAction SilentlyContinue
-if (-not $herdr) {
-    Write-Host "[install] herdr (Windows beta)..."
-    powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"
-} else {
-    Write-Host "[ok] herdr $($herdr.Source)"
-}
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "       herd-flows 依赖检查与初始化         " -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
 
-Write-Host "=== 2. Docker ===" 
+# 1. 检查 Herdr
+Write-Host "`n=== 1. Herdr 终端牧场运行时 ===" -ForegroundColor Cyan
+. (Join-Path $RootDir "vendor\herdr\install-herdr.ps1")
+
+# 2. 检查 Docker
+Write-Host "`n=== 2. Docker 环境 ===" -ForegroundColor Cyan
 if (Get-Command docker -ErrorAction SilentlyContinue) {
     docker info *>$null
-    if ($LASTEXITCODE -eq 0) { Write-Host "[ok] docker daemon running" }
-    else { Write-Host "[!] docker installed but daemon not running — start Docker Desktop" }
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[ok] Docker 守护进程运行中" -ForegroundColor Green
+    } else {
+        Write-Host "[!] Docker 已安装但服务未启动 — 请启动 Docker Desktop" -ForegroundColor Yellow
+    }
 } else {
-    Write-Host "[!] docker not installed — https://www.docker.com/products/docker-desktop"
+    Write-Host "[!] 未检测到 Docker — 可选安装: https://www.docker.com/products/docker-desktop" -ForegroundColor Yellow
 }
 
-Write-Host "=== 3. cliproxy image ===" 
+# 3. 检查 / 构建 cockpit-cliproxy 镜像
+Write-Host "`n=== 3. Cockpit Cliproxy 本地镜像 ===" -ForegroundColor Cyan
 $img = docker images -q cockpit-tools/cockpit-cliproxy:local 2>$null
-if ($img) { Write-Host "[ok] cockpit-cliproxy:local image exists" }
-else {
-    Write-Host "[build] cockpit-cliproxy:local..."
-    docker build -t cockpit-tools/cockpit-cliproxy:local -f gateway/Dockerfile.cockpit-cliproxy gateway/
+if ($img) {
+    Write-Host "[ok] cockpit-cliproxy:local 镜像已就绪" -ForegroundColor Green
+} else {
+    Write-Host "[build] 正在从本地 proxy 模块独立构建 cockpit-cliproxy:local ..." -ForegroundColor Yellow
+    $dockerfile = Join-Path $RootDir "proxy\Dockerfile.cockpit-cliproxy"
+    $proxyDir = Join-Path $RootDir "proxy"
+    docker build -t cockpit-tools/cockpit-cliproxy:local -f $dockerfile $proxyDir
+    Write-Host "[ok] 镜像构建成功！" -ForegroundColor Green
 }
 
-Write-Host "=== 4. claude CLI ===" 
-if (Get-Command claude -ErrorAction SilentlyContinue) { Write-Host "[ok] claude CLI" }
-else { Write-Host "[!] claude CLI not found — npm i -g @anthropic-ai/claude-code" }
+# 4. 检查 Claude CLI
+Write-Host "`n=== 4. Claude CLI (Worker 执行引擎) ===" -ForegroundColor Cyan
+if (Get-Command claude -ErrorAction SilentlyContinue) {
+    Write-Host "[ok] Claude CLI 已安装" -ForegroundColor Green
+} else {
+    Write-Host "[!] Claude CLI 未找到 — 安装命令: npm i -g @anthropic-ai/claude-code" -ForegroundColor Yellow
+}
 
-Write-Host "=== done. run: powershell runner\herdr-pool.ps1 -Ensure ===" 
+Write-Host "`n==========================================" -ForegroundColor Green
+Write-Host "  环境就绪！可运行: powershell scripts\start-all.ps1" -ForegroundColor Green
+Write-Host "==========================================" -ForegroundColor Green

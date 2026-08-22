@@ -5,21 +5,20 @@ description: Use when Kimi Code should delegate repo scans, reviews, drafting, o
 
 # subclaw v2 (Kimi Code branch)
 
-Kimi Code is the orchestrator. The runner is the SAME engine-neutral PowerShell as the Claude branch — `D:\devloop\workSpace\app_ZCode\herd-flows\runner\herdr-pool.ps1`. Workers are real `claude` CLI instances in herdr panes, pointed at cockpit-cliproxy gateway instances (:1456-1459) fronting SenseNova.
+Kimi Code is the orchestrator (牧人). The runner is the SAME engine-neutral PowerShell as the Claude branch — `D:\devloop\workSpace\app_ZCode\herd-flows\runner\herdr-pool.ps1`. Workers (羊群) are real `claude` CLI instances in herdr panes, pointed at cockpit-cliproxy gateway instances (:1456-1459) fronting SenseNova/LLMs. The verifier layer (牧羊犬) auto-checks output and redoes on FAIL without spending orchestrator tokens.
 
 ## ROUTING RULES
 
 1. Current orchestrator engine = **kimi**. The delegation paths described here are the ONLY legal paths in this engine.
-2. NEVER call other engines' NATIVE subagent mechanisms: no Claude Code Task tool / `.claude/agents`, no Codex TOML agents. Using them inside Kimi causes hard errors (cross-wiring bug class).
+2. NEVER call other engines' NATIVE subagent mechanisms: no Claude Code Task tool / `.claude/agents`, no Codex TOML agents. Using them inside Kimi causes hard errors.
 3. Spawning external worker CLIs is allowed — but ONLY through this skill's runner (`herdr-pool.ps1`), never by hand-writing engine-specific flags.
-4. Kimi-native delegation (`/coder`, `/explore`, `/plan`, `/swarm`) stays available for Kimi-side subagents; worker pools MUST go through the herdr runner.
-5. The old `scripts/run_kimi_claw_pool.ps1` (claw-proxy :4748 based) is ARCHIVED — do not use. claw-proxy is retired.
+4. Kimi-native delegation stays available for Kimi-side subagents; worker pools MUST go through the herdr runner.
 
 ## Endpoints
 
-- herdr session: `subclaw` (start: `herdr --session subclaw` in a terminal, or the runner's `-Ensure` bootstraps it)
-- Gateway pool: `http://127.0.0.1:1456..1459` (cockpit-cliproxy,准入 key `sk-subclaw-gateway`)
-- Config: `D:\devloop\workSpace\app_ZCode\herd-flows\runner\config.json` (profiles, gateway ports, verifier template)
+- Herdr session: `subclaw` (start: `powershell scripts\start-herdr.ps1`)
+- Gateway pool: `http://127.0.0.1:1456..1459` (cockpit-cliproxy, 准入 key `sk-subclaw-gateway`)
+- Config: `D:\devloop\workSpace\app_ZCode\herd-flows\runner\config.json`
 - Runner: `D:\devloop\workSpace\app_ZCode\herd-flows\runner\herdr-pool.ps1`
 
 ## Workflow
@@ -28,11 +27,12 @@ Kimi Code is the orchestrator. The runner is the SAME engine-neutral PowerShell 
 ```powershell
 powershell D:\devloop\workSpace\app_ZCode\herd-flows\runner\herdr-pool.ps1 -Ensure
 ```
-Checks herdr session is up, writes per-profile worker settings, probes each gateway port. If a port reports DOWN, ask the user to `docker compose -f "D:\Docker Project\cockpit-tools\compose.subclaw-pool.yml" --env-file "D:\Docker Project\cockpit-tools\.env" up -d`.
+Checks Herdr session is up, writes per-profile worker settings, probes each gateway port. If ports report DOWN, ask user to `powershell D:\devloop\workSpace\app_ZCode\herd-flows\scripts\start-proxy.ps1`.
 
-2. Dispatch (workers are `claude` CLI — Kimi has no CLI, so Kimi orchestrates and Claude executes):
+2. Dispatch:
 ```powershell
 powershell D:\devloop\workSpace\app_ZCode\herd-flows\runner\herdr-pool.ps1 -Dispatch "<task>" -Profile flash -Name w1
+# async dispatch: -Async
 ```
 Profiles: `flash` (6.8-flash-lite, :1458), `deepseek` (deepseek-v4-flash, :1457), `glm` (glm-5.2, :1456). Verifier on by default.
 
@@ -45,12 +45,6 @@ powershell D:\devloop\workSpace\app_ZCode\herd-flows\runner\herdr-pool.ps1 -Clea
 
 ## Verifier layer (saves your tokens)
 
-- Verifier = a second worker on the `deepseek` profile.
+- Verifier = a second worker on the `deepseek` profile acting as the sheepdog / inspector.
 - FAIL → worker gets redo instructions and reruns; you only see the final pass/abort.
 - Skip with `-NoVerify` for trivial tasks.
-
-## Conventions
-
-- Worker names: `[a-z][a-z0-9_-]{0,31}`, unique among live agents.
-- Brief files: pass the path as the task text; the worker reads it itself.
-- Reports persist in pane scrollback; use `-Read <name> --lines N` for more.
